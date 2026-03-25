@@ -10,9 +10,10 @@ requires-python = ">=3.11"
 readme = "README.md"
 
 # Only the two UI runtimes are required to run either front-end.
+# Only the two UI runtimes are required to run either front-end.
 # Format-support and LLM packages are optional — see [project.optional-dependencies].
 dependencies = [
-    "flet>=0.21.0",
+    "flet>=0.82.0",
     "flask>=3.0",
 ]
 

@@ -1,7 +1,7 @@
 # Babbelbook — Python dependencies
 #
 # Core (required to run either front-end)
-flet>=0.21.0
+flet>=0.82.0
 flask>=3.0
 
 # Format support (optional — install any combination you need)
