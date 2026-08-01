@@ -28,9 +28,13 @@ formats = [
     "langdetect>=1.0.9",    # Language detection from extracted text
 ]
 
-# Local LLM support via Ollama (HTTP only — no extra Python package needed)
-# Run:  ollama pull gpt-oss:20b && ollama serve
-llm = []
+# Local LLM support. Default backend is in-process mlx-lm (Apple silicon).
+# Ollama alternative needs no Python package — set BABBELBOOK_LLM_BACKEND=ollama
+# and run:  ollama pull gpt-oss:20b && ollama serve
+llm = [
+    "mlx-lm>=0.31",
+    "mlx-vlm>=0.6.1",
+]
 
 # Development and testing
 dev = [

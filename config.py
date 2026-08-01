@@ -3,6 +3,7 @@ config.py — paths, thresholds, category maps, genre keywords.
 All other modules import from here; nothing is imported from other modules.
 """
 
+import os
 from pathlib import Path
 
 # -- Library availability flags -----------------------------------------------
@@ -37,8 +38,8 @@ try:
 except ImportError:
     LANGDETECT_OK = False
 
-# Ollama is accessed via plain HTTP (stdlib only)
-OLLAMA_OK = True  # verified at startup via health check
+# LLM backend availability — verified at startup via check_llm_backend()
+LLM_OK = True
 
 # -- Paths --------------------------------------------------------------------
 BOOKS_DIR     = Path.home() / "Documents" / "Books"
@@ -51,11 +52,21 @@ REPROCESS_DIR = BOOKS_DIR / "___to_reprocess"
 SUPPORTED_EXTS = {".epub", ".pdf", ".mobi", ".azw", ".azw3", ".cbz", ".cbr", ".fb2"}
 
 # -- Thresholds ---------------------------------------------------------------
-OLLAMA_THRESHOLD    = 75   # below this → send to Ollama for reclassification
+LLM_THRESHOLD       = 75   # below this → send to the LLM for reclassification
 UNCERTAIN_THRESHOLD = 55   # below this → flag in summary report
 CSV_LOG_THRESHOLD   = 35   # below this AND no proper category → write to CSV
 
-# -- Ollama -------------------------------------------------------------------
+# -- LLM backend ---------------------------------------------------------------
+# "mlx"    → in-process mlx-lm on Apple silicon (default)
+# "ollama" → local Ollama HTTP server
+LLM_BACKEND = os.environ.get("BABBELBOOK_LLM_BACKEND", "mlx")
+
+# mlx settings
+MLX_MODEL       = "mlx-community/gemma-4-26B-A4B-it-qat-mxfp8"
+MLX_MAX_TOKENS  = 512    # classification JSON is tiny
+LLM_TEMPERATURE = 0.1    # shared by both backends
+
+# ollama settings
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL    = "gpt-oss:20b"
 DEFAULT_WORKERS = 10   # concurrent workers; good default for Apple Silicon

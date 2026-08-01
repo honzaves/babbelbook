@@ -14,7 +14,7 @@ from pathlib import Path
 
 from config import (
     BOOKS_DIR, ORGANIZED_DIR, CACHE_DB, UNCERTAIN_CSV, FAILED_DIR, SUPPORTED_EXTS,
-    UNCERTAIN_THRESHOLD, CSV_LOG_THRESHOLD, OLLAMA_MODEL, DEFAULT_WORKERS,
+    UNCERTAIN_THRESHOLD, CSV_LOG_THRESHOLD, DEFAULT_WORKERS,
 )
 from .cache import book_upsert, book_get
 from .classifier import BookMeta, resolve, destination
@@ -166,12 +166,12 @@ def process_book(src: Path, dry_run: bool = False, total: int = 0):
     status = "DRY-RUN" if dry_run else "COPYING"
     flag = " WARNING LOW CONFIDENCE" if uncertain else ""
     fb = " [FALLBACK]" if meta.fallback else ""
-    ollama = " [Ollama]" if "ollama" in meta.sources else ""
+    llm = " [LLM]" if ("ollama" in meta.sources or "mlx" in meta.sources) else ""
 
     with _print_lock:
         _book_counter += 1
         progress = f"[{_book_counter}/{total}]" if total else f"[{_book_counter}]"
-        print(f"\n  {progress} [{status}]{fb}{flag}{ollama} {src.name}")
+        print(f"\n  {progress} [{status}]{fb}{flag}{llm} {src.name}")
         print(f"           Author     : {meta.author}")
         print(f"           Language   : {meta.language}  |  Genre : {meta.genre}  ->  {meta.category}")
         print(f"           Confidence : {meta.confidence}/100  |  Sources : {', '.join(meta.sources) or 'none'}")
@@ -227,7 +227,7 @@ def scan_and_organize(dry_run: bool = False, workers: int = DEFAULT_WORKERS):
     global _book_counter
     _book_counter = 0
 
-    copied = failed = uncertain_count = ollama_count = 0
+    copied = failed = uncertain_count = llm_count = 0
     failed_books = []
     uncertain_books = []
 
@@ -240,8 +240,8 @@ def scan_and_organize(dry_run: bool = False, workers: int = DEFAULT_WORKERS):
             try:
                 meta, dest = future.result()
                 copied += 1
-                if "ollama" in meta.sources:
-                    ollama_count += 1
+                if "ollama" in meta.sources or "mlx" in meta.sources:
+                    llm_count += 1
                 if meta.confidence < UNCERTAIN_THRESHOLD:
                     uncertain_count += 1
                     uncertain_books.append((src, meta))
@@ -270,7 +270,7 @@ def scan_and_organize(dry_run: bool = False, workers: int = DEFAULT_WORKERS):
 
     _close_csv()
     _flatten_single_language_folders(dry_run)
-    _print_summary(total, copied, ollama_count, failed, uncertain_count,
+    _print_summary(total, copied, llm_count, failed, uncertain_count,
                    workers, dry_run, failed_books, uncertain_books)
 
 
@@ -391,7 +391,7 @@ def _flatten_single_language_folders(dry_run: bool = False):
     print(f"  Flattened : {flattened} author folder(s)  |  Kept multi-language : {skipped}")
 
 
-def _print_summary(total, copied, ollama_count, failed, uncertain_count,
+def _print_summary(total, copied, llm_count, failed, uncertain_count,
                    workers, dry_run, failed_books, uncertain_books):
     sep = "=" * 65
     print(f"\n{sep}")
@@ -399,7 +399,9 @@ def _print_summary(total, copied, ollama_count, failed, uncertain_count,
     print(sep)
     print(f"  Total books found       : {total}")
     print(f"  Successfully copied     : {copied}")
-    print(f"  Classified by Ollama    : {ollama_count}  (model: {OLLAMA_MODEL})")
+    import config
+    model = config.MLX_MODEL if config.LLM_BACKEND == "mlx" else config.OLLAMA_MODEL
+    print(f"  Classified by LLM       : {llm_count}  (backend: {config.LLM_BACKEND}, model: {model})")
     print(f"  Failed (errors)         : {failed}")
     print(f"  Low confidence (report)  : {uncertain_count}  (threshold: {UNCERTAIN_THRESHOLD}/100)")
     print(f"  Written to CSV           : books with confidence < {CSV_LOG_THRESHOLD} in other/fallback")

@@ -32,7 +32,8 @@ babbelbook/
 ├── organizer/
 │   ├── cache.py            ← SQLite helpers: books table + API cache table
 │   ├── classifier.py       ← BookMeta dataclass, genre/language detection, resolve()
-│   ├── enrichment.py       ← Google Books, Open Library, isbnlib, Ollama
+│   ├── enrichment.py       ← Google Books, Open Library, isbnlib, LLM dispatch (mlx/Ollama)
+│   ├── mlx_client.py       ← in-process mlx-lm generation (dedicated MLX thread)
 │   ├── extractors.py       ← epub/pdf/mobi metadata extraction
 │   └── organizer.py        ← File copy, flatten, CSV logging, summary
 │
@@ -172,13 +173,35 @@ Each book passes through these stages, stopping early when confidence is high en
 5. Open Library search
 6. Language detection (langdetect)
 7. Keyword scan against `GENRE_KEYWORDS`
-8. Ollama LLM (if confidence < `OLLAMA_THRESHOLD = 75`)
+8. Local LLM (if confidence < `LLM_THRESHOLD = 75`) — in-process mlx-lm by default, Ollama if `LLM_BACKEND = "ollama"`
 9. Filename heuristic (last resort)
 
 Confidence thresholds (all in `config.py`):
-- `OLLAMA_THRESHOLD = 75` — below this → send to Ollama
+- `LLM_THRESHOLD = 75` — below this → send to the LLM backend
 - `UNCERTAIN_THRESHOLD = 55` — below this → flagged in summary
 - `CSV_LOG_THRESHOLD = 35` — below this + `other/`/`failed/` → written to CSV
+
+---
+
+## LLM Backends
+
+The organiser's low-confidence classification step runs against one of two local
+LLM backends, selected by `LLM_BACKEND` in `config.py` (env override:
+`BABBELBOOK_LLM_BACKEND`):
+
+- **`mlx` (default)** — in-process via mlx-lm/mlx-vlm on Apple silicon.
+  Model: `MLX_MODEL` (an `-it` mlx-community conversion). All MLX work runs on
+  one dedicated thread in `organizer/mlx_client.py` — never call mlx from
+  another thread. If the model can't load, the organiser **exits 1 at startup**
+  (first-ever run downloads the model inside this check).
+- **`ollama`** — local Ollama HTTP server (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`).
+  If unreachable, the organiser warns and skips LLM classification (soft).
+
+LLM results are cached per backend (`mlx:{title}:{author}` /
+`ollama:{title}:{author}`), so switching backends never reuses the other
+model's answers. Every mlx failure surfaces as `mlx_client.MlxError`;
+`classify_with_llm` catches all backend errors, so a per-book failure keeps
+the heuristic classification and the run continues.
 
 ---
 

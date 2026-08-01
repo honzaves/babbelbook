@@ -16,6 +16,12 @@ mobi>=0.3.3
 isbnlib>=3.10
 langdetect>=1.0.9
 
+# Local LLM via in-process MLX (Apple silicon only; default backend)
+#   mlx-lm   →  text-architecture models
+#   mlx-vlm  →  "unified"/multimodal architectures (gemma-4 family)
+mlx-lm>=0.31
+mlx-vlm>=0.6.1
+
 # Development / testing
 pytest>=8.0
 pytest-cov>=5.0

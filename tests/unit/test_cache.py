@@ -49,6 +49,7 @@ def _make_temp_db():
             relative_path TEXT,
             confidence    INTEGER,
             sources       TEXT,
+            file_size_bytes INTEGER,
             ts            INTEGER
         )
     """)

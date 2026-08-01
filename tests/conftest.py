@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS books (
     relative_path  TEXT,
     confidence     INTEGER,
     sources        TEXT,
+    file_size_bytes INTEGER,
     ts             INTEGER
 )
 """

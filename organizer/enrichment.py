@@ -5,7 +5,7 @@ Sources:
   isbnlib      → ISBN  → title, authors, language
   Google Books → title + author → title, authors, language, subjects
   Open Library → title + author → title, authors, language, subjects (fallback)
-  Ollama       → low-confidence books → category, genre, language, author
+  LLM (mlx-lm or Ollama) → low-confidence books → category, genre, language, author
 """
 
 import json
@@ -15,8 +15,8 @@ import urllib.request
 
 from .cache import cache_get, cache_set
 from config import (
-    ISBNLIB_OK, LANGUAGE_MAP, MAIN_CATEGORIES,
-    OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_OK,
+    ISBNLIB_OK, LANGUAGE_MAP, LLM_TEMPERATURE, MAIN_CATEGORIES,
+    OLLAMA_BASE_URL, OLLAMA_MODEL,
 )
 
 if ISBNLIB_OK:
@@ -41,20 +41,40 @@ def check_ollama() -> bool:
     try:
         data = _http_get(f"{OLLAMA_BASE_URL}/api/tags")
         if data is None:
-            config.OLLAMA_OK = False
+            config.LLM_OK = False
             return False
         models = [m.get("name", "") for m in data.get("models", [])]
         if not any(OLLAMA_MODEL in m for m in models):
             print(f"  WARNING: model '{OLLAMA_MODEL}' not found in Ollama.")
             print(f"  Available: {', '.join(models) or 'none'}")
             print(f"  Run: ollama pull {OLLAMA_MODEL}")
-            config.OLLAMA_OK = False
+            config.LLM_OK = False
             return False
         return True
     except Exception as e:
         print(f"  WARNING: Ollama not reachable at {OLLAMA_BASE_URL}: {e}")
-        config.OLLAMA_OK = False
+        config.LLM_OK = False
         return False
+
+
+def check_llm_backend() -> bool:
+    """Verify the configured LLM backend and set config.LLM_OK.
+
+    mlx    → eagerly load the model (blocks; first-ever run downloads it).
+    ollama → HTTP reachability + model presence (existing soft check).
+    """
+    import config
+    if config.LLM_BACKEND == "mlx":
+        from . import mlx_client
+        try:
+            mlx_client.ensure_loaded()
+            config.LLM_OK = True
+            return True
+        except mlx_client.MlxError as e:
+            print(f"  ERROR: mlx backend unavailable: {e}")
+            config.LLM_OK = False
+            return False
+    return check_ollama()
 
 
 # -- isbnlib ------------------------------------------------------------------
@@ -128,9 +148,9 @@ def enrich_open_library(title: str, author: str) -> dict:
     return result
 
 
-# -- Ollama classification ----------------------------------------------------
+# -- LLM classification --------------------------------------------------------
 
-_OLLAMA_SYSTEM = """You are a book classification assistant.
+_LLM_SYSTEM = """You are a book classification assistant.
 Given a book title, author, and a short text sample, return ONLY a valid JSON
 object with no explanation, no markdown, no extra text whatsoever.
 
@@ -153,15 +173,53 @@ Rules:
 """
 
 
-def classify_with_ollama(title: str, author: str, sample: str,
-                          current_category: str, current_language: str) -> dict | None:
+def _ollama_generate(user_prompt: str) -> str:
+    """POST to the local Ollama server; returns the raw response text."""
+    payload = json.dumps({
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": _LLM_SYSTEM},
+            {"role": "user",   "content": user_prompt},
+        ],
+        "stream": False,
+        "options": {"temperature": LLM_TEMPERATURE},
+    }).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/v1/chat/completions",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=60) as r:
+        response = json.loads(r.read().decode())
+    return response["choices"][0]["message"]["content"].strip()
+
+
+def _extract_json(raw: str) -> dict:
+    """Strip code fences, take the outermost {...}, parse. Raises on failure."""
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$",        "", raw)
+    json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if json_match:
+        raw = json_match.group()
+    return json.loads(raw)
+
+
+def classify_with_llm(title: str, author: str, sample: str,
+                      current_category: str, current_language: str) -> dict | None:
+    """Classify one book via the configured LLM backend (config.LLM_BACKEND).
+
+    Results are cached per backend ("mlx:..." / "ollama:...") so switching
+    backends never reuses the other model's answers. Returns the parsed dict,
+    or None on any failure (the book keeps its heuristic classification).
+    """
     import config
-    cache_key = f"ollama:{title}:{author}"
+    cache_key = f"{config.LLM_BACKEND}:{title}:{author}"
     cached    = cache_get(cache_key)
     if cached is not None:
         return cached
 
-    if not config.OLLAMA_OK:
+    if not config.LLM_OK:
         return None
 
     snippet = sample[:1500].strip() if sample else "(no text available)"
@@ -172,40 +230,19 @@ def classify_with_ollama(title: str, author: str, sample: str,
         f"Current language guess : {current_language}\n\n"
         f"Text sample:\n{snippet}\n"
     )
-    payload = json.dumps({
-        "model": OLLAMA_MODEL,
-        "messages": [
-            {"role": "system", "content": _OLLAMA_SYSTEM},
-            {"role": "user",   "content": prompt},
-        ],
-        "stream": False,
-        "options": {"temperature": 0.1},
-    }).encode()
 
     try:
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE_URL}/v1/chat/completions",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=60) as r:
-            response = json.loads(r.read().decode())
-
-        raw = response["choices"][0]["message"]["content"].strip()
-        raw = re.sub(r"^```[a-z]*\n?", "", raw)
-        raw = re.sub(r"\n?```$",        "", raw)
-        # Extract JSON blob in case model added preamble
-        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if json_match:
-            raw = json_match.group()
-
-        data = json.loads(raw)
-        if data.get("category") not in MAIN_CATEGORIES:
-            data["category"] = "other"
-        cache_set(cache_key, data)
-        return data
-
+        if config.LLM_BACKEND == "mlx":
+            from . import mlx_client
+            raw = mlx_client.generate(_LLM_SYSTEM, prompt, config.MLX_MAX_TOKENS)
+        else:
+            raw = _ollama_generate(prompt)
+        data = _extract_json(raw)
     except Exception as e:
-        print(f"    [Ollama] error: {e}")
+        print(f"    [LLM/{config.LLM_BACKEND}] error: {e}")
         return None
+
+    if data.get("category") not in MAIN_CATEGORIES:
+        data["category"] = "other"
+    cache_set(cache_key, data)
+    return data

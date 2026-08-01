@@ -328,18 +328,20 @@ class TestScore(unittest.TestCase):
         _score(m)
         self.assertGreater(m.confidence, 0)
 
-    def test_ollama_source_boosts_score(self):
-        m_no_ollama = BookMeta(
-            author="Author", language="english", category="reading",
-            sources=["library", "keyword_title"],
-        )
-        m_ollama = BookMeta(
-            author="Author", language="english", category="reading",
-            sources=["library", "ollama"],
-        )
-        _score(m_no_ollama)
-        _score(m_ollama)
-        self.assertGreater(m_ollama.confidence, m_no_ollama.confidence)
+    def test_llm_source_boosts_score(self):
+        for tag in ("ollama", "mlx"):
+            with self.subTest(backend=tag):
+                m_no_llm = BookMeta(
+                    author="Author", language="english", category="reading",
+                    sources=["library", "keyword_title"],
+                )
+                m_llm = BookMeta(
+                    author="Author", language="english", category="reading",
+                    sources=["library", tag],
+                )
+                _score(m_no_llm)
+                _score(m_llm)
+                self.assertGreater(m_llm.confidence, m_no_llm.confidence)
 
     def test_score_capped_at_100(self):
         m = BookMeta(

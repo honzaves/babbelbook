@@ -11,12 +11,12 @@ from config import (
     EBOOKLIB_OK, PYMUPDF_OK, MOBI_OK,
     LANGDETECT_OK, LANGUAGE_MAP,
     GENRE_KEYWORDS, GENRE_TO_CATEGORY, SUBJECT_GENRE_MAP,
-    OLLAMA_THRESHOLD, OLLAMA_MODEL, UNCERTAIN_THRESHOLD,
+    LLM_THRESHOLD, UNCERTAIN_THRESHOLD,
     ORGANIZED_DIR,
 )
 from .extractors import extract_epub, extract_pdf, extract_mobi
 from .enrichment import (
-    enrich_isbn, enrich_google_books, enrich_open_library, classify_with_ollama,
+    enrich_isbn, enrich_google_books, enrich_open_library, classify_with_llm,
 )
 
 if LANGDETECT_OK:
@@ -154,7 +154,7 @@ def _score(meta: BookMeta) -> None:
         elif "online_lang"  in meta.sources: score += 5
     if meta.category != "other":
         score += 10
-        if "ollama"             in meta.sources: score += 30
+        if "ollama" in meta.sources or "mlx" in meta.sources: score += 30
         elif "subjects_online"  in meta.sources: score += 25
         elif "subjects_library" in meta.sources: score += 20
         elif "keyword_title"    in meta.sources: score += 8
@@ -283,11 +283,13 @@ def resolve(path: Path) -> BookMeta:
     meta.category = category if not meta.fallback else "other"
     _score(meta)
 
-    # 9. Ollama pass for low-confidence books
+    # 9. LLM pass for low-confidence books
     import config
-    if meta.confidence < OLLAMA_THRESHOLD and config.OLLAMA_OK and not meta.fallback:
-        print(f"    [Ollama] confidence {meta.confidence}/100 -- asking {OLLAMA_MODEL} ...")
-        result = classify_with_ollama(
+    if meta.confidence < LLM_THRESHOLD and config.LLM_OK and not meta.fallback:
+        model_name = config.MLX_MODEL if config.LLM_BACKEND == "mlx" else config.OLLAMA_MODEL
+        print(f"    [LLM/{config.LLM_BACKEND}] confidence {meta.confidence}/100 "
+              f"-- asking {model_name} ...")
+        result = classify_with_llm(
             meta.title, meta.author, sample,
             meta.category, meta.language
         )
@@ -299,10 +301,10 @@ def resolve(path: Path) -> BookMeta:
                 meta.language = result["language"]
             if result.get("author", "Unknown Author") != "Unknown Author":
                 meta.author = sanitize(result["author"])
-            meta.sources.append("ollama")
-            _add_genre(meta, meta.genre)  # add Ollama's genre to the collection
+            meta.sources.append(config.LLM_BACKEND)
+            _add_genre(meta, meta.genre)  # add the LLM's genre to the collection
             if old_cat != meta.category:
-                print(f"    [Ollama] reclassified: {old_cat} -> {meta.category}  "
+                print(f"    [LLM/{config.LLM_BACKEND}] reclassified: {old_cat} -> {meta.category}  "
                       f"(genre: {meta.genre}, confidence: {result.get('confidence', '?')})")
             _score(meta)
 

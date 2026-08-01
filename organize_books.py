@@ -13,10 +13,11 @@ import sys
 from config import (
     BOOKS_DIR, ORGANIZED_DIR,
     EBOOKLIB_OK, PYMUPDF_OK, MOBI_OK, ISBNLIB_OK, LANGDETECT_OK,
-    OLLAMA_THRESHOLD, UNCERTAIN_THRESHOLD, OLLAMA_BASE_URL, OLLAMA_MODEL,
+    LLM_THRESHOLD, UNCERTAIN_THRESHOLD,
+    LLM_BACKEND, MLX_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL,
     DEFAULT_WORKERS,
 )
-from organizer.enrichment import check_ollama
+from organizer.enrichment import check_llm_backend
 from organizer.organizer import scan_and_organize
 
 
@@ -36,8 +37,9 @@ def main():
     print(f"  Source : {BOOKS_DIR}")
     print(f"  Target : {ORGANIZED_DIR}")
     print(f"  Mode   : {'DRY-RUN' if dry_run else 'LIVE'}")
-    print(f"  Ollama threshold      : {OLLAMA_THRESHOLD}/100  (model: {OLLAMA_MODEL})")
-    print(f"  Ollama URL            : {OLLAMA_BASE_URL}")
+    model = MLX_MODEL if LLM_BACKEND == "mlx" else OLLAMA_MODEL
+    print(f"  LLM backend           : {LLM_BACKEND}  (model: {model})")
+    print(f"  LLM threshold         : {LLM_THRESHOLD}/100")
     print(f"  Uncertain threshold   : {UNCERTAIN_THRESHOLD}/100")
     print(f"  Concurrent workers    : {workers}")
     print("=" * 65)
@@ -58,11 +60,16 @@ def main():
     else:
         print("\n  All packages available.\n")
 
-    print(f"  Checking Ollama at {OLLAMA_BASE_URL} ...")
-    if check_ollama():
-        print(f"  Ollama OK -- model '{OLLAMA_MODEL}' is ready.\n")
+    print(f"  Checking LLM backend '{LLM_BACKEND}' ...")
+    if check_llm_backend():
+        print(f"  LLM OK -- backend '{LLM_BACKEND}' is ready.\n")
+    elif LLM_BACKEND == "mlx":
+        print("  Aborting: the mlx backend is configured but unavailable.")
+        print("  Set BABBELBOOK_LLM_BACKEND=ollama to use Ollama instead.")
+        sys.exit(1)
     else:
-        print("  Ollama unavailable -- LLM classification will be skipped.\n")
+        print(f"  Ollama unavailable at {OLLAMA_BASE_URL} -- "
+              "LLM classification will be skipped.\n")
 
     scan_and_organize(dry_run=dry_run, workers=workers)
 

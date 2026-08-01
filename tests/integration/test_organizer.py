@@ -53,7 +53,7 @@ def _make_db(path: Path) -> sqlite3.Connection:
             original_path TEXT PRIMARY KEY,
             title TEXT, author TEXT, language TEXT,
             genres TEXT, directory TEXT, relative_path TEXT,
-            confidence INTEGER, sources TEXT, ts INTEGER
+            confidence INTEGER, sources TEXT, file_size_bytes INTEGER, ts INTEGER
         )
     """)
     con.execute("""
